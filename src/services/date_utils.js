@@ -1,16 +1,19 @@
 const dayjs = require('dayjs');
-const cls = require('./cls');
+const cls = require('./cls.js');
+
+const LOCAL_DATETIME_FORMAT = 'YYYY-MM-DD HH:mm:ss.SSSZZ';
+const UTC_DATETIME_FORMAT = 'YYYY-MM-DD HH:mm:ssZ';
 
 function utcNowDateTime() {
-    return utcDateStr(new Date());
+    return utcDateTimeStr(new Date());
 }
 
-// CLS date time is important in web deployments - server often runs in different time zone than user is located in
-// so we'd prefer client timezone to be used to record local dates. For this reason requests from client contain
+// CLS date time is important in web deployments - server often runs in different time zone than user is located in,
+// so we'd prefer client timezone to be used to record local dates. For this reason, requests from clients contain
 // "trilium-local-now-datetime" header which is then stored in CLS
 function localNowDateTime() {
     return cls.getLocalNowDateTime()
-        || dayjs().format('YYYY-MM-DD HH:mm:ss.SSSZZ')
+        || dayjs().format(LOCAL_DATETIME_FORMAT)
 }
 
 function localNowDate() {
@@ -22,7 +25,7 @@ function localNowDate() {
     else {
         const date = new Date();
 
-        return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate());
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     }
 }
 
@@ -31,6 +34,10 @@ function pad(num) {
 }
 
 function utcDateStr(date) {
+    return date.toISOString().split('T')[0];
+}
+
+function utcDateTimeStr(date) {
     return date.toISOString().replace('T', ' ');
 }
 
@@ -43,25 +50,49 @@ function parseDateTime(str) {
         return new Date(Date.parse(str));
     }
     catch (e) {
-        throw new Error("Can't parse date from " + str + ": " + e.stack);
+        throw new Error(`Can't parse date from '${str}': ${e.stack}`);
     }
-}
-
-function parseDate(str) {
-    const datePart = str.substr(0, 10);
-
-    return parseDateTime(datePart + "T12:00:00.000Z");
 }
 
 function parseLocalDate(str) {
     const datePart = str.substr(0, 10);
 
     // not specifying the timezone and specifying the time means Date.parse() will use the local timezone
-    return parseDateTime(datePart + " 12:00:00.000");
+    return parseDateTime(`${datePart} 12:00:00.000`);
 }
 
 function getDateTimeForFile() {
     return new Date().toISOString().substr(0, 19).replace(/:/g, '');
+}
+
+function validateLocalDateTime(str) {
+    if (!str) {
+        return;
+    }
+
+    if (!/[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}[+-][0-9]{4}/.test(str)) {
+        return `Invalid local date time format in '${str}'. Correct format shoud follow example: '2023-08-21 23:38:51.110+0200'`;
+    }
+
+
+    if (!dayjs(str, LOCAL_DATETIME_FORMAT)) {
+        return `Date '${str}' appears to be in the correct format, but cannot be parsed. It likely represents an invalid date.`;
+    }
+}
+
+function validateUtcDateTime(str) {
+    if (!str) {
+        return;
+    }
+
+    if (!/[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z/.test(str)) {
+        return `Invalid UTC date time format in '${str}'. Correct format shoud follow example: '2023-08-21 23:38:51.110Z'`;
+    }
+
+
+    if (!dayjs(str, UTC_DATETIME_FORMAT)) {
+        return `Date '${str}' appears to be in the correct format, but cannot be parsed. It likely represents an invalid date.`;
+    }
 }
 
 module.exports = {
@@ -69,8 +100,10 @@ module.exports = {
     localNowDateTime,
     localNowDate,
     utcDateStr,
-    parseDate,
+    utcDateTimeStr,
     parseDateTime,
     parseLocalDate,
-    getDateTimeForFile
+    getDateTimeForFile,
+    validateLocalDateTime,
+    validateUtcDateTime
 };

@@ -1,11 +1,10 @@
 import BasicWidget from "./basic_widget.js";
-import toastService from "../services/toast.js";
 import ws from "../services/ws.js";
 import options from "../services/options.js";
 import syncService from "../services/sync.js";
 
 const TPL = `
-<div class="sync-status-widget icon-action">
+<div class="sync-status-widget launcher-button">
     <style>
     .sync-status-widget {
     }
@@ -44,7 +43,7 @@ const TPL = `
               data-placement="right"
               title="<p>Sync status will be known once the next sync attempt starts.</p><p>Click to trigger sync now.</p>">
         </span>
-        <span class="sync-status-icon sync-status-connected-with-changes bx-wifi"
+        <span class="sync-status-icon sync-status-connected-with-changes bx bx-wifi"
               data-toggle="tooltip" 
               data-placement="right"
               title="<p>Connected to the sync server. <br>There are some outstanding changes yet to be synced.</p><p>Click to trigger sync.</p>">
@@ -79,8 +78,6 @@ export default class SyncStatusWidget extends BasicWidget {
     constructor() {
         super();
 
-        ws.subscribeToMessages(message => this.processMessage(message));
-
         this.syncState = 'unknown';
         this.allChangesPushed = false;
     }
@@ -94,8 +91,9 @@ export default class SyncStatusWidget extends BasicWidget {
         });
 
         this.$widget.find('.sync-status-icon:not(.sync-status-in-progress)')
-            .on('click', () => syncService.syncNow())
+            .on('click', () => syncService.syncNow());
 
+        ws.subscribeToMessages(message => this.processMessage(message));
     }
 
     showIcon(className) {
@@ -106,7 +104,7 @@ export default class SyncStatusWidget extends BasicWidget {
 
         this.$widget.show();
         this.$widget.find('.sync-status-icon').hide();
-        this.$widget.find('.sync-status-' + className).show();
+        this.$widget.find(`.sync-status-${className}`).show();
     }
 
     processMessage(message) {
@@ -135,7 +133,7 @@ export default class SyncStatusWidget extends BasicWidget {
         if (['unknown', 'in-progress'].includes(this.syncState)) {
             this.showIcon(this.syncState);
         } else {
-            this.showIcon(this.syncState + '-' + (this.allChangesPushed ? 'no-changes' : 'with-changes'));
+            this.showIcon(`${this.syncState}-${this.allChangesPushed ? 'no-changes' : 'with-changes'}`);
         }
     }
 }

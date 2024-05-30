@@ -1,9 +1,9 @@
 "use strict";
 
-const sqlInit = require('../../services/sql_init');
-const setupService = require('../../services/setup');
-const log = require('../../services/log');
-const appInfo = require('../../services/app_info');
+const sqlInit = require('../../services/sql_init.js');
+const setupService = require('../../services/setup.js');
+const log = require('../../services/log.js');
+const appInfo = require('../../services/app_info.js');
 
 function getStatus() {
     return {
@@ -13,16 +13,14 @@ function getStatus() {
     };
 }
 
-async function setupNewDocument(req) {
-    const { username, password, theme } = req.body;
-
-    await sqlInit.createInitialDatabase(username, password, theme);
+async function setupNewDocument() {
+    await sqlInit.createInitialDatabase();
 }
 
 function setupSyncFromServer(req) {
-    const { syncServerHost, syncProxy, username, password } = req.body;
+    const { syncServerHost, syncProxy, password } = req.body;
 
-    return setupService.setupSyncFromSyncServer(syncServerHost, syncProxy, username, password);
+    return setupService.setupSyncFromSyncServer(syncServerHost, syncProxy, password);
 }
 
 function saveSyncSeed(req) {

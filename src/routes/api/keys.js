@@ -1,19 +1,17 @@
 "use strict";
 
-const keyboardActions = require('../../services/keyboard_actions');
-const sql = require('../../services/sql');
+const keyboardActions = require('../../services/keyboard_actions.js');
+const becca = require('../../becca/becca.js');
 
 function getKeyboardActions() {
     return keyboardActions.getKeyboardActions();
 }
 
 function getShortcutsForNotes() {
-    return sql.getMap(`
-        SELECT value, noteId
-        FROM attributes
-        WHERE isDeleted = 0
-          AND type = 'label'
-          AND name = 'keyboardShortcut'`);
+    const labels = becca.findAttributes('label', 'keyboardShortcut');
+
+    // launchers have different handling
+    return labels.filter(attr => becca.getNote(attr.noteId)?.type !== 'launcher');
 }
 
 module.exports = {

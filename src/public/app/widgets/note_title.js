@@ -1,9 +1,10 @@
 import NoteContextAwareWidget from "./note_context_aware_widget.js";
-import utils from "../services/utils.js";
 import protectedSessionHolder from "../services/protected_session_holder.js";
 import server from "../services/server.js";
 import SpacedUpdate from "../services/spaced_update.js";
-import appContext from "../services/app_context.js";
+import appContext from "../components/app_context.js";
+import branchService from "../services/branches.js";
+import shortcutService from "../services/shortcuts.js";
 
 const TPL = `
 <div class="note-title-widget">
@@ -37,8 +38,10 @@ export default class NoteTitleWidget extends NoteContextAwareWidget {
 
             protectedSessionHolder.touchProtectedSessionIfNecessary(this.note);
 
-            await server.put(`notes/${this.noteId}/change-title`, {title}, this.componentId);
+            await server.put(`notes/${this.noteId}/title`, {title}, this.componentId);
         });
+
+        this.deleteNoteOnEscape = false;
 
         appContext.addBeforeUnloadListener(this);
     }
@@ -49,19 +52,39 @@ export default class NoteTitleWidget extends NoteContextAwareWidget {
 
         this.$noteTitle.on('input', () => this.spacedUpdate.scheduleUpdate());
 
-        utils.bindElShortcut(this.$noteTitle, 'return', () => {
-            this.triggerCommand('focusOnAttributes', {ntxId: this.noteContext.ntxId});
+        this.$noteTitle.on('blur', () => {
+            this.spacedUpdate.updateNowIfNecessary();
+
+            this.deleteNoteOnEscape = false;
+        });
+
+        shortcutService.bindElShortcut(this.$noteTitle, 'esc', () => {
+            if (this.deleteNoteOnEscape && this.noteContext.isActive()) {
+                branchService.deleteNotes(Object.values(this.noteContext.note.parentToBranch));
+            }
+        });
+
+        shortcutService.bindElShortcut(this.$noteTitle, 'return', () => {
+            this.triggerCommand('focusOnDetail', {ntxId: this.noteContext.ntxId});
         });
     }
 
     async refreshWithNote(note) {
-        this.$noteTitle.val(note.title);
+        const isReadOnly = (note.isProtected && !protectedSessionHolder.isProtectedSessionAvailable())
+            || ['_lbRoot', '_lbAvailableLaunchers', '_lbVisibleLaunchers'].includes(note.noteId)
+            || this.noteContext.viewScope.viewMode !== 'default';
 
-        this.$noteTitle.prop("readonly", note.isProtected && !protectedSessionHolder.isProtectedSessionAvailable());
+        this.$noteTitle.val(
+            isReadOnly
+                ? await this.noteContext.getNavigationTitle()
+                : note.title
+        );
+        this.$noteTitle.prop("readonly", isReadOnly);
 
         this.setProtectedStatus(note);
     }
 
+    /** @param {FNote} note */
     setProtectedStatus(note) {
         this.$noteTitle.toggleClass("protected", !!note.isProtected);
     }
@@ -72,7 +95,7 @@ export default class NoteTitleWidget extends NoteContextAwareWidget {
         }
     }
 
-    async beforeTabRemoveEvent({ntxIds}) {
+    async beforeNoteContextRemoveEvent({ntxIds}) {
         if (this.isNoteContext(ntxIds)) {
             await this.spacedUpdate.updateNowIfNecessary();
         }
@@ -84,11 +107,13 @@ export default class NoteTitleWidget extends NoteContextAwareWidget {
         }
     }
 
-    focusAndSelectTitleEvent() {
+    focusAndSelectTitleEvent({isNewNote} = {isNewNote: false}) {
         if (this.noteContext && this.noteContext.isActive()) {
             this.$noteTitle
                 .trigger('focus')
                 .trigger('select');
+
+            this.deleteNoteOnEscape = isNewNote;
         }
     }
 

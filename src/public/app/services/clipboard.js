@@ -1,7 +1,8 @@
 import branchService from "./branches.js";
 import toastService from "./toast.js";
-import hoistedNoteService from "./hoisted_note.js";
 import froca from "./froca.js";
+import linkService from "./link.js";
+import utils from "./utils.js";
 
 let clipboardBranchIds = [];
 let clipboardMode = null;
@@ -26,10 +27,10 @@ async function pasteAfter(afterBranchId) {
             await branchService.cloneNoteAfter(clipboardNote.noteId, afterBranchId);
         }
 
-        // copy will keep clipboardBranchIds and clipboardMode so it's possible to paste into multiple places
+        // copy will keep clipboardBranchIds and clipboardMode, so it's possible to paste into multiple places
     }
     else {
-        toastService.throwError("Unrecognized clipboard mode=" + clipboardMode);
+        toastService.throwError(`Unrecognized clipboard mode=${clipboardMode}`);
     }
 }
 
@@ -50,19 +51,32 @@ async function pasteInto(parentBranchId) {
         for (const clipboardBranch of clipboardBranches) {
             const clipboardNote = await clipboardBranch.getNote();
 
-            await branchService.cloneNoteTo(clipboardNote.noteId, parentBranchId);
+            await branchService.cloneNoteToBranch(clipboardNote.noteId, parentBranchId);
         }
 
-        // copy will keep clipboardBranchIds and clipboardMode so it's possible to paste into multiple places
+        // copy will keep clipboardBranchIds and clipboardMode, so it's possible to paste into multiple places
     }
     else {
-        toastService.throwError("Unrecognized clipboard mode=" + mode);
+        toastService.throwError(`Unrecognized clipboard mode=${clipboardMode}`);
     }
 }
 
-function copy(branchIds) {
+async function copy(branchIds) {
     clipboardBranchIds = branchIds;
     clipboardMode = 'copy';
+
+    if (utils.isElectron()) {
+        // https://github.com/zadam/trilium/issues/2401
+        const {clipboard} = require('electron');
+        const links = [];
+
+        for (const branch of froca.getBranches(clipboardBranchIds)) {
+            const $link = await linkService.createLink(`${branch.parentNoteId}/${branch.noteId}`, { referenceLink: true });
+            links.push($link[0].outerHTML);
+        }
+
+        clipboard.writeHTML(links.join(', '));
+    }
 
     toastService.showMessage("Note(s) have been copied into clipboard.");
 }

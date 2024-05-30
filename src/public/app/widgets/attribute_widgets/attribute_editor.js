@@ -1,14 +1,14 @@
 import NoteContextAwareWidget from "../note_context_aware_widget.js";
 import noteAutocompleteService from "../../services/note_autocomplete.js";
 import server from "../../services/server.js";
-import contextMenuService from "../../services/context_menu.js";
-import attributesParser from "../../services/attribute_parser.js";
+import contextMenuService from "../../menus/context_menu.js";
+import attributeParser from "../../services/attribute_parser.js";
 import libraryLoader from "../../services/library_loader.js";
 import froca from "../../services/froca.js";
 import attributeRenderer from "../../services/attribute_renderer.js";
 import noteCreateService from "../../services/note_create.js";
-import treeService from "../../services/tree.js";
 import attributeService from "../../services/attributes.js";
+import linkService from "../../services/link.js";
 
 const HELP_TEXT = `
 <p>To add label, just type e.g. <code>#rock</code> or if you want to add also value then e.g. <code>#year = 2020</code></p> 
@@ -57,8 +57,10 @@ const TPL = `
     }
     
     .add-new-attribute-button:hover, .save-attributes-button:hover {
-        border: 1px solid var(--main-border-color);
-        border-radius: 2px;
+        border: 1px solid var(--button-border-color);
+        border-radius: var(--button-border-radius);
+        background: var(--button-background-color);
+        color: var(--button-text-color);
     }
     
     .attribute-errors {
@@ -93,32 +95,30 @@ const mentionSetup = {
         {
             marker: '#',
             feed: async queryText => {
-                const names = await server.get(`attributes/names/?type=label&query=${encodeURIComponent(queryText)}`);
+                const names = await server.get(`attribute-names/?type=label&query=${encodeURIComponent(queryText)}`);
 
                 return names.map(name => {
                     return {
-                        id: '#' + name,
+                        id: `#${name}`,
                         name: name
                     }
                 });
             },
-            minimumCharacters: 0,
-            attributeMention: true
+            minimumCharacters: 0
         },
         {
             marker: '~',
             feed: async queryText => {
-                const names = await server.get(`attributes/names/?type=relation&query=${encodeURIComponent(queryText)}`);
+                const names = await server.get(`attribute-names/?type=relation&query=${encodeURIComponent(queryText)}`);
 
                 return names.map(name => {
                     return {
-                        id: '~' + name,
+                        id: `~${name}`,
                         name: name
                     }
                 });
             },
-            minimumCharacters: 0,
-            attributeMention: true
+            minimumCharacters: 0
         }
     ]
 };
@@ -193,13 +193,14 @@ export default class AttributeEditorWidget extends NoteContextAwareWidget {
 
         this.$editor.on('keydown', async e => {
             if (e.which === 13) {
-                await this.save();
+                // allow autocomplete to fill the result textarea
+                setTimeout(() => this.save(), 100);
             }
 
             this.attributeDetailWidget.hide();
         });
 
-        this.$editor.on('blur', () => this.save());
+        this.$editor.on('blur', () => setTimeout(() => this.save(), 100)); // Timeout to fix https://github.com/zadam/trilium/issues/4160
 
         this.$addNewAttributeButton = this.$widget.find('.add-new-attribute-button');
         this.$addNewAttributeButton.on('click', e => this.addNewAttribute(e));
@@ -216,26 +217,30 @@ export default class AttributeEditorWidget extends NoteContextAwareWidget {
             y: e.pageY,
             orientation: 'left',
             items: [
-                {title: `Add new label <kbd data-command="addNewLabel"></kbd>`, command: "addNewLabel", uiIcon: "hash"},
-                {title: `Add new relation <kbd data-command="addNewRelation"></kbd>`, command: "addNewRelation", uiIcon: "transfer"},
+                {title: `Add new label <kbd data-command="addNewLabel"></kbd>`, command: "addNewLabel", uiIcon: "bx bx-hash"},
+                {title: `Add new relation <kbd data-command="addNewRelation"></kbd>`, command: "addNewRelation", uiIcon: "bx bx-transfer"},
                 {title: "----"},
-                {title: "Add new label definition", command: "addNewLabelDefinition", uiIcon: "empty"},
-                {title: "Add new relation definition", command: "addNewRelationDefinition", uiIcon: "empty"},
+                {title: "Add new label definition", command: "addNewLabelDefinition", uiIcon: "bx bx-empty"},
+                {title: "Add new relation definition", command: "addNewRelationDefinition", uiIcon: "bx bx-empty"},
             ],
             selectMenuItemHandler: ({command}) => this.handleAddNewAttributeCommand(command)
         });
     }
 
     // triggered from keyboard shortcut
-    addNewLabelEvent({ntxId}) {
+    async addNewLabelEvent({ntxId}) {
         if (this.isNoteContext(ntxId)) {
+            await this.refresh();
+
             this.handleAddNewAttributeCommand('addNewLabel');
         }
     }
 
     // triggered from keyboard shortcut
-    addNewRelationEvent({ntxId}) {
+    async addNewRelationEvent({ntxId}) {
         if (this.isNoteContext(ntxId)) {
+            await this.refresh();
+
             this.handleAddNewAttributeCommand('addNewRelation');
         }
     }
@@ -296,6 +301,12 @@ export default class AttributeEditorWidget extends NoteContextAwareWidget {
     }
 
     async save() {
+        if (this.lastUpdatedNoteId !== this.noteId) {
+            // https://github.com/zadam/trilium/issues/3090
+            console.warn("Ignoring blur event because a different note is loaded.");
+            return;
+        }
+
         const attributes = this.parseAttributes();
 
         if (attributes) {
@@ -303,7 +314,7 @@ export default class AttributeEditorWidget extends NoteContextAwareWidget {
 
             this.$saveAttributesButton.fadeOut();
 
-            // blink the attribute text to give visual hint that save has been executed
+            // blink the attribute text to give a visual hint that save has been executed
             this.$editor.css('opacity', 0);
 
             // revert back
@@ -313,9 +324,7 @@ export default class AttributeEditorWidget extends NoteContextAwareWidget {
 
     parseAttributes() {
         try {
-            const attrs = attributesParser.lexAndParse(this.getPreprocessedData());
-
-            return attrs;
+            return attributeParser.lexAndParse(this.getPreprocessedData());
         }
         catch (e) {
             this.$errors.text(e.message).slideDown();
@@ -324,7 +333,7 @@ export default class AttributeEditorWidget extends NoteContextAwareWidget {
 
     getPreprocessedData() {
         const str = this.textEditor.getData()
-            .replace(/<a[^>]+href="(#[A-Za-z0-9/]*)"[^>]*>[^<]*<\/a>/g, "$1")
+            .replace(/<a[^>]+href="(#[A-Za-z0-9_/]*)"[^>]*>[^<]*<\/a>/g, "$1")
             .replace(/&nbsp;/g, " "); // otherwise .text() below outputs non-breaking space in unicode
 
         return $("<div>").html(str).text();
@@ -337,6 +346,7 @@ export default class AttributeEditorWidget extends NoteContextAwareWidget {
 
         this.$editor.on("click", e => this.handleEditorClick(e));
 
+        /** @property {BalloonEditor} */
         this.textEditor = await BalloonEditor.create(this.$editor[0], editorConfig);
         this.textEditor.model.document.on('change:data', () => this.dataChanged());
         this.textEditor.editing.view.document.on('enter', (event, data) => {
@@ -348,11 +358,13 @@ export default class AttributeEditorWidget extends NoteContextAwareWidget {
         // disable spellcheck for attribute editor
         this.textEditor.editing.view.change(writer => writer.setAttribute('spellcheck', 'false', this.textEditor.editing.view.document.getRoot()));
 
-        //await import(/* webpackIgnore: true */'../../libraries/ckeditor/inspector.js');
+        //await import(/* webpackIgnore: true */'../../libraries/ckeditor/inspector');
         //CKEditorInspector.attach(this.textEditor);
     }
 
     dataChanged() {
+        this.lastUpdatedNoteId = this.noteId;
+
         if (this.lastSavedContent === this.textEditor.getData()) {
             this.$saveAttributesButton.fadeOut();
         }
@@ -376,10 +388,10 @@ export default class AttributeEditorWidget extends NoteContextAwareWidget {
             let parsedAttrs;
 
             try {
-                parsedAttrs = attributesParser.lexAndParse(this.getPreprocessedData(), true);
+                parsedAttrs = attributeParser.lexAndParse(this.getPreprocessedData(), true);
             }
             catch (e) {
-                // the input is incorrect because user messed up with it and now needs to fix it manually
+                // the input is incorrect because the user messed up with it and now needs to fix it manually
                 return null;
             }
 
@@ -446,17 +458,11 @@ export default class AttributeEditorWidget extends NoteContextAwareWidget {
         return clickIndex;
     }
 
-    async loadReferenceLinkTitle(noteId, $el) {
+    async loadReferenceLinkTitle($el, href) {
+        const {noteId} = linkService.parseNavigationStateFromUrl(href);
         const note = await froca.getNote(noteId, true);
 
-        let title;
-
-        if (!note) {
-            title = '[missing]';
-        }
-        else {
-            title = note.isDeleted ? `${note.title} (deleted)` : note.title;
-        }
+        const title = note ? note.title : '[missing]';
 
         $el.text(title);
     }
@@ -466,7 +472,8 @@ export default class AttributeEditorWidget extends NoteContextAwareWidget {
     }
 
     async renderOwnedAttributes(ownedAttributes, saved) {
-        ownedAttributes = ownedAttributes.filter(oa => !oa.isDeleted);
+        // attrs are not resorted if position changes after the initial load
+        ownedAttributes.sort((a, b) => a.position - b.position);
 
         let htmlAttrs = (await attributeRenderer.renderAttributes(ownedAttributes, true)).html();
 
@@ -483,36 +490,31 @@ export default class AttributeEditorWidget extends NoteContextAwareWidget {
         }
     }
 
-    async focusOnAttributesEvent({ntxId}) {
-        if (this.noteContext.ntxId === ntxId) {
-            if (this.$editor.is(":visible")) {
-                this.$editor.trigger('focus');
-
-                this.textEditor.model.change(writer => { // put focus to the end of the content
-                    writer.setSelection(writer.createPositionAt(this.textEditor.model.document.getRoot(), 'end'));
-                });
-            }
-            else {
-                this.triggerEvent('focusOnDetail', {ntxId: this.noteContext.ntxId});
-            }
-        }
-    }
-
     async createNoteForReferenceLink(title) {
-        const {note} = await noteCreateService.createNote(this.notePath, {
+        const {note} = await noteCreateService.createNoteWithTypePrompt(this.notePath, {
             activate: false,
             title: title
         });
 
-        return treeService.getSomeNotePath(note);
+        return note.getBestNotePathString();
     }
 
     async updateAttributeList(attributes) {
         await this.renderOwnedAttributes(attributes, false);
     }
 
+    focus() {
+        this.$editor.trigger('focus');
+
+        this.textEditor.model.change( writer => {
+            const positionAt = writer.createPositionAt(this.textEditor.model.document.getRoot(), 'end');
+
+            writer.setSelection(positionAt);
+        } );
+    }
+
     entitiesReloadedEvent({loadResults}) {
-        if (loadResults.getAttributes(this.componentId).find(attr => attributeService.isAffecting(attr, this.note))) {
+        if (loadResults.getAttributeRows(this.componentId).find(attr => attributeService.isAffecting(attr, this.note))) {
             this.refresh();
         }
     }

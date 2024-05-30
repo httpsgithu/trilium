@@ -1,16 +1,15 @@
 "use strict";
 
-const optionService = require('../../services/options');
-const log = require('../../services/log');
-const attributes = require('../../services/attributes');
-const searchService = require('../../services/search/services/search');
+const optionService = require('../../services/options.js');
+const log = require('../../services/log.js');
+const searchService = require('../../services/search/services/search.js');
+const ValidationError = require('../../errors/validation_error.js');
 
-// options allowed to be updated directly in options dialog
+// options allowed to be updated directly in the Options dialog
 const ALLOWED_OPTIONS = new Set([
-    'username', // not exposed for update (not harmful anyway), needed for reading
     'eraseEntitiesAfterTimeInSeconds',
     'protectedSessionTimeout',
-    'noteRevisionSnapshotTimeInterval',
+    'revisionSnapshotTimeInterval',
     'zoomFactor',
     'theme',
     'syncServerHost',
@@ -18,17 +17,16 @@ const ALLOWED_OPTIONS = new Set([
     'syncProxy',
     'hoistedNoteId',
     'mainFontSize',
+    'mainFontFamily',
     'treeFontSize',
+    'treeFontFamily',
     'detailFontSize',
-    'openTabs',
-    'noteInfoWidget',
-    'attributesWidget',
-    'linkMapWidget',
-    'noteRevisionsWidget',
-    'whatLinksHereWidget',
-    'similarNotesWidget',
-    'editedNotesWidget',
-    'calendarWidget',
+    'detailFontFamily',
+    'monospaceFontSize',
+    'monospaceFontFamily',
+    'openNoteContexts',
+    'vimKeymapEnabled',
+    'codeLineWrapEnabled',
     'codeNotesMimeTypes',
     'spellCheckEnabled',
     'spellCheckLanguageCode',
@@ -39,15 +37,31 @@ const ALLOWED_OPTIONS = new Set([
     'leftPaneVisible',
     'rightPaneVisible',
     'nativeTitleBarVisible',
-    'attributeListExpanded',
-    'promotedAttributesExpanded',
-    'similarNotesExpanded',
     'headingStyle',
-    'autoCollapseNoteTree'
+    'autoCollapseNoteTree',
+    'autoReadonlySizeText',
+    'autoReadonlySizeCode',
+    'overrideThemeFonts',
+    'dailyBackupEnabled',
+    'weeklyBackupEnabled',
+    'monthlyBackupEnabled',
+    'maxContentWidth',
+    'compressImages',
+    'downloadImagesAutomatically',
+    'minTocHeadings',
+    'highlightsList',
+    'checkForUpdates',
+    'disableTray',
+    'eraseUnusedAttachmentsAfterSeconds',
+    'disableTray',
+    'customSearchEngineName',
+    'customSearchEngineUrl',
+    'promotedAttributesOpenInRibbon',
+    'editedNotesOpenInRibbon'
 ]);
 
 function getOptions() {
-    const optionMap = optionService.getOptionsMap();
+    const optionMap = optionService.getOptionMap();
     const resultMap = {};
 
     for (const optionName in optionMap) {
@@ -56,6 +70,8 @@ function getOptions() {
         }
     }
 
+    resultMap['isPasswordSet'] = optionMap['passwordVerificationHash'] ? 'true' : 'false';
+
     return resultMap;
 }
 
@@ -63,7 +79,7 @@ function updateOption(req) {
     const {name, value} = req.params;
 
     if (!update(name, value)) {
-        return [400, "not allowed option to change"];
+        throw new ValidationError("not allowed option to change");
     }
 }
 
@@ -72,7 +88,7 @@ function updateOptions(req) {
         if (!update(optionName, req.body[optionName])) {
             // this should be improved
             // it should return 400 instead of current 500, but at least it now rollbacks transaction
-            throw new Error(`${optionName} is not allowed to change`);
+            throw new Error(`Option '${optionName}' is not allowed to be changed`);
         }
     }
 }
@@ -82,8 +98,8 @@ function update(name, value) {
         return false;
     }
 
-    if (name !== 'openTabs') {
-        log.info(`Updating option ${name} to ${value}`);
+    if (name !== 'openNoteContexts') {
+        log.info(`Updating option '${name}' to '${value}'`);
     }
 
     optionService.setOption(name, value);
@@ -92,7 +108,7 @@ function update(name, value) {
 }
 
 function getUserThemes() {
-    const notes = searchService.searchNotes("#appTheme");
+    const notes = searchService.searchNotes("#appTheme", {ignoreHoistedNote: true});
     const ret = [];
 
     for (const note of notes) {
@@ -116,8 +132,7 @@ function isAllowed(name) {
     return ALLOWED_OPTIONS.has(name)
         || name.startsWith("keyboardShortcuts")
         || name.endsWith("Collapsed")
-        || name.startsWith("hideArchivedNotes")
-        || name.startsWith("hideIncludedImages");
+        || name.startsWith("hideArchivedNotes");
 }
 
 module.exports = {

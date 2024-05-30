@@ -1,5 +1,4 @@
-import appContext from "./app_context.js";
-import utils from "./utils.js";
+import appContext from "../components/app_context.js";
 import protectedSessionHolder from "./protected_session_holder.js";
 import server from "./server.js";
 import ws from "./ws.js";
@@ -14,8 +13,8 @@ async function createNote(parentNotePath, options = {}) {
         target: 'into'
     }, options);
 
-    // if isProtected isn't available (user didn't enter password yet), then note is created as unencrypted
-    // but this is quite weird since user doesn't see WHERE the note is being created so it shouldn't occur often
+    // if isProtected isn't available (user didn't enter password yet), then note is created as unencrypted,
+    // but this is quite weird since the user doesn't see WHERE the note is being created, so it shouldn't occur often
     if (!options.isProtected || !protectedSessionHolder.isProtectedSessionAvailable()) {
         options.isProtected = false;
     }
@@ -24,25 +23,32 @@ async function createNote(parentNotePath, options = {}) {
         options.saveSelection = false;
     }
 
-    if (options.saveSelection && utils.isCKEditorInitialized()) {
-        [options.title, options.content] = parseSelectedHtml(window.cutToNote.getSelectedHtml());
+    if (options.saveSelection) {
+        [options.title, options.content] = parseSelectedHtml(options.textEditor.getSelectedHtml());
     }
 
-    const newNoteName = options.title || "new note";
+    const parentNoteId = treeService.getNoteIdFromUrl(parentNotePath);
 
-    const parentNoteId = treeService.getNoteIdFromNotePath(parentNotePath);
+    if (options.type === 'mermaid' && !options.content) {
+        options.content = `graph TD;
+    A-->B;
+    A-->C;
+    B-->D;
+    C-->D;`
+    }
 
-    const {note, branch} = await server.post(`notes/${parentNoteId}/children?target=${options.target}&targetBranchId=${options.targetBranchId}`, {
-        title: newNoteName,
+    const {note, branch} = await server.post(`notes/${parentNoteId}/children?target=${options.target}&targetBranchId=${options.targetBranchId || ""}`, {
+        title: options.title,
         content: options.content || "",
         isProtected: options.isProtected,
         type: options.type,
-        mime: options.mime
+        mime: options.mime,
+        templateNoteId: options.templateNoteId
     });
 
-    if (options.saveSelection && utils.isCKEditorInitialized()) {
+    if (options.saveSelection) {
         // we remove the selection only after it was saved to server to make sure we don't lose anything
-        window.cutToNote.removeSelection();
+        options.textEditor.removeSelection();
     }
 
     await ws.waitForMaxKnownEntityChangeId();
@@ -52,7 +58,7 @@ async function createNote(parentNotePath, options = {}) {
         await activeNoteContext.setNote(`${parentNotePath}/${note.noteId}`);
 
         if (options.focus === 'title') {
-            appContext.triggerEvent('focusAndSelectTitle');
+            appContext.triggerEvent('focusAndSelectTitle', {isNewNote: true});
         }
         else if (options.focus === 'content') {
             appContext.triggerEvent('focusOnDetail', {ntxId: activeNoteContext.ntxId});
@@ -68,13 +74,32 @@ async function createNote(parentNotePath, options = {}) {
     };
 }
 
-/* If first element is heading, parse it out and use it as a new heading. */
+async function chooseNoteType() {
+    return new Promise(res => {
+        appContext.triggerCommand("chooseNoteType", {callback: res});
+    });
+}
+
+async function createNoteWithTypePrompt(parentNotePath, options = {}) {
+    const {success, noteType, templateNoteId} = await chooseNoteType();
+
+    if (!success) {
+        return;
+    }
+
+    options.type = noteType;
+    options.templateNoteId = templateNoteId;
+
+    return await createNote(parentNotePath, options);
+}
+
+/* If the first element is heading, parse it out and use it as a new heading. */
 function parseSelectedHtml(selectedHtml) {
     const dom = $.parseHTML(selectedHtml);
 
     if (dom.length > 0 && dom[0].tagName && dom[0].tagName.match(/h[1-6]/i)) {
         const title = $(dom[0]).text();
-        // remove the title from content (only first occurence)
+        // remove the title from content (only first occurrence)
         const content = selectedHtml.replace(dom[0].outerHTML, "");
 
         return [title, content];
@@ -85,7 +110,7 @@ function parseSelectedHtml(selectedHtml) {
 }
 
 async function duplicateSubtree(noteId, parentNotePath) {
-    const parentNoteId = treeService.getNoteIdFromNotePath(parentNotePath);
+    const parentNoteId = treeService.getNoteIdFromUrl(parentNotePath);
     const {note} = await server.post(`notes/${noteId}/duplicate/${parentNoteId}`);
 
     await ws.waitForMaxKnownEntityChangeId();
@@ -99,5 +124,7 @@ async function duplicateSubtree(noteId, parentNotePath) {
 
 export default {
     createNote,
-    duplicateSubtree
+    createNoteWithTypePrompt,
+    duplicateSubtree,
+    chooseNoteType
 };

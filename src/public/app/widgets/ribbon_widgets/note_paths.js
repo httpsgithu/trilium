@@ -44,10 +44,6 @@ export default class NotePathsWidget extends NoteContextAwareWidget {
         return "toggleRibbonTabNotePaths";
     }
 
-    isEnabled() {
-        return this.note;
-    }
-
     getTitle() {
         return {
             show: true,
@@ -69,11 +65,14 @@ export default class NotePathsWidget extends NoteContextAwareWidget {
         this.$notePathList.empty();
 
         if (this.noteId === 'root') {
-            await this.addPath('root');
+            this.$notePathList.empty().append(
+                await this.getRenderedPath('root')
+            );
+
             return;
         }
 
-        const sortedNotePaths = this.note.getSortedNotePaths(this.hoistedNoteId)
+        const sortedNotePaths = this.note.getSortedNotePathRecords(this.hoistedNoteId)
             .filter(notePath => !notePath.isHidden);
 
         if (sortedNotePaths.length > 0) {
@@ -83,17 +82,21 @@ export default class NotePathsWidget extends NoteContextAwareWidget {
             this.$notePathIntro.text("This note is not yet placed into the note tree.");
         }
 
+        const renderedPaths = [];
+
         for (const notePathRecord of sortedNotePaths) {
-            await this.addPath(notePathRecord);
+            const notePath = notePathRecord.notePath.join('/');
+
+            renderedPaths.push(await this.getRenderedPath(notePath, notePathRecord));
         }
+
+        this.$notePathList.empty().append(...renderedPaths);
     }
 
-    async addPath(notePathRecord) {
-        const notePath = notePathRecord.notePath.join('/');
-
+    async getRenderedPath(notePath, notePathRecord = null) {
         const title = await treeService.getNotePathTitle(notePath);
 
-        const $noteLink = await linkService.createNoteLink(notePath, {title});
+        const $noteLink = await linkService.createLink(notePath, {title});
 
         $noteLink
             .find('a')
@@ -105,20 +108,20 @@ export default class NotePathsWidget extends NoteContextAwareWidget {
             $noteLink.addClass("path-current");
         }
 
-        if (notePathRecord.isInHoistedSubTree) {
+        if (!notePathRecord || notePathRecord.isInHoistedSubTree) {
             $noteLink.addClass("path-in-hoisted-subtree");
         }
         else {
             icons.push(`<span class="bx bx-trending-up" title="This path is outside of hoisted note and you would have to unhoist."></span>`);
         }
 
-        if (notePathRecord.isArchived) {
+        if (notePathRecord?.isArchived) {
             $noteLink.addClass("path-archived");
 
             icons.push(`<span class="bx bx-archive" title="Archived"></span>`);
         }
 
-        if (notePathRecord.isSearch) {
+        if (notePathRecord?.isSearch) {
             $noteLink.addClass("path-search");
 
             icons.push(`<span class="bx bx-search" title="Search"></span>`);
@@ -128,11 +131,11 @@ export default class NotePathsWidget extends NoteContextAwareWidget {
             $noteLink.append(` ${icons.join(' ')}`);
         }
 
-        this.$notePathList.append($("<li>").append($noteLink));
+        return $("<li>").append($noteLink);
     }
 
     entitiesReloadedEvent({loadResults}) {
-        if (loadResults.getBranches().find(branch => branch.noteId === this.noteId)
+        if (loadResults.getBranchRows().find(branch => branch.noteId === this.noteId)
             || loadResults.isNoteReloaded(this.noteId)) {
 
             this.refresh();

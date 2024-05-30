@@ -4,15 +4,19 @@ CREATE TABLE IF NOT EXISTS "entity_changes" (
                                                 `entityId`	TEXT NOT NULL,
                                                 `hash`	TEXT NOT NULL,
                                                 `isErased` INT NOT NULL,
-                                                `sourceId` TEXT NOT NULL,
+                                                `changeId` TEXT NOT NULL,
+                                                `componentId` TEXT NOT NULL,
+                                                `instanceId` TEXT NOT NULL,
                                                 `isSynced` INTEGER NOT NULL,
                                                 `utcDateChanged` TEXT NOT NULL
                                                 );
-CREATE TABLE IF NOT EXISTS "api_tokens"
+CREATE TABLE IF NOT EXISTS "etapi_tokens"
 (
-    apiTokenId TEXT PRIMARY KEY NOT NULL,
-    token TEXT NOT NULL,
+    etapiTokenId TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    tokenHash TEXT NOT NULL,
     utcDateCreated TEXT NOT NULL,
+    utcDateModified TEXT NOT NULL,
     isDeleted INT NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS "branches" (
                                           `branchId`	TEXT NOT NULL,
@@ -24,7 +28,6 @@ CREATE TABLE IF NOT EXISTS "branches" (
                                           `isDeleted`	INTEGER NOT NULL DEFAULT 0,
                                           `deleteId`    TEXT DEFAULT NULL,
                                           `utcDateModified`	TEXT NOT NULL,
-                                          utcDateCreated TEXT NOT NULL,
                                           PRIMARY KEY(`branchId`));
 CREATE TABLE IF NOT EXISTS "notes" (
                                        `noteId`	TEXT NOT NULL,
@@ -32,6 +35,7 @@ CREATE TABLE IF NOT EXISTS "notes" (
                                        `isProtected`	INT NOT NULL DEFAULT 0,
                                        `type` TEXT NOT NULL DEFAULT 'text',
                                        `mime` TEXT NOT NULL DEFAULT 'text/html',
+                                       blobId TEXT DEFAULT NULL,
                                        `isDeleted`	INT NOT NULL DEFAULT 0,
                                        `deleteId`   TEXT DEFAULT NULL,
                                        `dateCreated`	TEXT NOT NULL,
@@ -39,33 +43,23 @@ CREATE TABLE IF NOT EXISTS "notes" (
                                        `utcDateCreated`	TEXT NOT NULL,
                                        `utcDateModified`	TEXT NOT NULL,
                                        PRIMARY KEY(`noteId`));
-CREATE TABLE IF NOT EXISTS "note_contents" (
-                                               `noteId`	TEXT NOT NULL,
-                                               `content`	TEXT NULL DEFAULT NULL,
-                                               `dateModified` TEXT NOT NULL,
-                                               `utcDateModified` TEXT NOT NULL,
-                                               PRIMARY KEY(`noteId`)
-);
-CREATE TABLE IF NOT EXISTS "note_revisions" (`noteRevisionId`	TEXT NOT NULL PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS "revisions" (`revisionId`	TEXT NOT NULL PRIMARY KEY,
                                              `noteId`	TEXT NOT NULL,
                                              type TEXT DEFAULT '' NOT NULL,
                                              mime TEXT DEFAULT '' NOT NULL,
-                                             `title`	TEXT,
+                                             `title`	TEXT NOT NULL,
                                              `isProtected`	INT NOT NULL DEFAULT 0,
+                                            blobId TEXT DEFAULT NULL,
                                              `utcDateLastEdited` TEXT NOT NULL,
                                              `utcDateCreated` TEXT NOT NULL,
                                              `utcDateModified` TEXT NOT NULL,
                                              `dateLastEdited` TEXT NOT NULL,
                                              `dateCreated` TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS "note_revision_contents" (`noteRevisionId`	TEXT NOT NULL PRIMARY KEY,
-                                                     `content`	TEXT,
-                                                     `utcDateModified` TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS "options"
 (
     name TEXT not null PRIMARY KEY,
-    value TEXT,
+    value TEXT not null,
     isSynced INTEGER default 0 not null,
-    utcDateCreated TEXT not null,
     utcDateModified TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS "attributes"
@@ -92,11 +86,12 @@ CREATE INDEX `IDX_notes_dateCreated` ON `notes` (`dateCreated`);
 CREATE INDEX `IDX_notes_dateModified` ON `notes` (`dateModified`);
 CREATE INDEX `IDX_notes_utcDateModified` ON `notes` (`utcDateModified`);
 CREATE INDEX `IDX_notes_utcDateCreated` ON `notes` (`utcDateCreated`);
-CREATE INDEX `IDX_note_revisions_noteId` ON `note_revisions` (`noteId`);
-CREATE INDEX `IDX_note_revisions_utcDateCreated` ON `note_revisions` (`utcDateCreated`);
-CREATE INDEX `IDX_note_revisions_utcDateLastEdited` ON `note_revisions` (`utcDateLastEdited`);
-CREATE INDEX `IDX_note_revisions_dateCreated` ON `note_revisions` (`dateCreated`);
-CREATE INDEX `IDX_note_revisions_dateLastEdited` ON `note_revisions` (`dateLastEdited`);
+CREATE INDEX `IDX_revisions_noteId` ON `revisions` (`noteId`);
+CREATE INDEX `IDX_revisions_utcDateCreated` ON `revisions` (`utcDateCreated`);
+CREATE INDEX `IDX_revisions_utcDateLastEdited` ON `revisions` (`utcDateLastEdited`);
+CREATE INDEX `IDX_revisions_dateCreated` ON `revisions` (`dateCreated`);
+CREATE INDEX `IDX_revisions_dateLastEdited` ON `revisions` (`dateLastEdited`);
+CREATE INDEX `IDX_entity_changes_changeId` ON `entity_changes` (`changeId`);
 CREATE INDEX IDX_attributes_name_value
     on attributes (name, value);
 CREATE INDEX IDX_attributes_noteId_index
@@ -109,3 +104,31 @@ CREATE TABLE IF NOT EXISTS "recent_notes"
     notePath TEXT not null,
     utcDateCreated TEXT not null
 );
+CREATE TABLE IF NOT EXISTS "blobs" (
+                                               `blobId`	TEXT NOT NULL,
+                                               `content`	TEXT NULL DEFAULT NULL,
+                                               `dateModified` TEXT NOT NULL,
+                                               `utcDateModified` TEXT NOT NULL,
+                                               PRIMARY KEY(`blobId`)
+);
+CREATE TABLE IF NOT EXISTS "attachments"
+(
+    attachmentId      TEXT not null primary key,
+    ownerId       TEXT not null,
+    role         TEXT not null,
+    mime         TEXT not null,
+    title         TEXT not null,
+    isProtected    INT  not null DEFAULT 0,
+    position     INT  default 0 not null,
+    blobId    TEXT DEFAULT null,
+    dateModified TEXT NOT NULL,
+    utcDateModified TEXT not null,
+    utcDateScheduledForErasureSince TEXT DEFAULT NULL,
+    isDeleted    INT  not null,
+    deleteId    TEXT DEFAULT NULL);
+CREATE INDEX IDX_attachments_ownerId_role
+    on attachments (ownerId, role);
+
+CREATE INDEX IDX_notes_blobId on notes (blobId);
+CREATE INDEX IDX_revisions_blobId on revisions (blobId);
+CREATE INDEX IDX_attachments_blobId on attachments (blobId);

@@ -1,10 +1,10 @@
 const searchService = require('../../src/services/search/services/search.js');
-const Note = require('../../src/becca/entities/note.js');
-const Branch = require('../../src/becca/entities/branch.js');
+const BNote = require('../../src/becca/entities/bnote.js');
+const BBranch = require('../../src/becca/entities/bbranch.js');
 const SearchContext = require('../../src/services/search/search_context.js');
 const dateUtils = require('../../src/services/date_utils.js');
 const becca = require('../../src/becca/becca.js');
-const {NoteBuilder, findNoteByTitle, note} = require('./note_cache_mocking.js');
+const {NoteBuilder, findNoteByTitle, note} = require('./becca_mocking.js');
 
 describe("Search", () => {
     let rootNote;
@@ -12,8 +12,8 @@ describe("Search", () => {
     beforeEach(() => {
         becca.reset();
 
-        rootNote = new NoteBuilder(new Note({noteId: 'root', title: 'root', type: 'text'}));
-        new Branch(becca, {branchId: 'root', noteId: 'root', parentNoteId: 'none', notePosition: 10});
+        rootNote = new NoteBuilder(new BNote({noteId: 'root', title: 'root', type: 'text'}));
+        new BBranch({branchId: 'none_root', noteId: 'root', parentNoteId: 'none', notePosition: 10});
     });
 
     it("simple path match", () => {
@@ -157,6 +157,21 @@ describe("Search", () => {
         expect(findNoteByTitle(searchResults, "Czech Republic")).toBeTruthy();
     });
 
+    it("inherited label comparison", () => {
+        rootNote
+            .child(note("Europe")
+                .label('country', '', true)
+                .child(note("Austria"))
+                .child(note("Czech Republic"))
+            );
+
+        const searchContext = new SearchContext();
+
+        const searchResults = searchService.findResultsWithQuery('austria #country', searchContext);
+        expect(searchResults.length).toEqual(1);
+        expect(findNoteByTitle(searchResults, "Austria")).toBeTruthy();
+    });
+
     it("numeric label comparison fallback to string comparison", () => {
         // dates should not be coerced into numbers which would then give wrong numbers
 
@@ -169,7 +184,7 @@ describe("Search", () => {
                     .label('established', '1993-01-01'))
                 .child(note("Hungary")
                     .label('established', '1920-06-04'))
-        );
+            );
 
         const searchContext = new SearchContext();
 
@@ -218,7 +233,7 @@ describe("Search", () => {
         test("#month = month", 1);
         test("#month = 'MONTH'", 0);
 
-        test("note.dateCreated =* month", 1);
+        test("note.dateCreated =* month", 2);
 
         test("#date = TODAY", 1);
         test("#date = today", 1);
@@ -337,11 +352,11 @@ describe("Search", () => {
 
         const searchContext = new SearchContext();
 
-        let searchResults = searchService.findResultsWithQuery('#city AND note.getAncestors().title = Europe', searchContext);
+        let searchResults = searchService.findResultsWithQuery('#city AND note.ancestors.title = Europe', searchContext);
         expect(searchResults.length).toEqual(1);
         expect(findNoteByTitle(searchResults, "Prague")).toBeTruthy();
 
-        searchResults = searchService.findResultsWithQuery('#city AND note.getAncestors().title = Asia', searchContext);
+        searchResults = searchService.findResultsWithQuery('#city AND note.ancestors.title = Asia', searchContext);
         expect(searchResults.length).toEqual(1);
         expect(findNoteByTitle(searchResults, "Taipei")).toBeTruthy();
     });

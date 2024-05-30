@@ -1,5 +1,5 @@
 import FlexContainer from "./flex_container.js";
-import appContext from "../../services/app_context.js";
+import appContext from "../../components/app_context.js";
 
 export default class SplitNoteContainer extends FlexContainer {
     constructor(widgetFactory) {
@@ -19,8 +19,6 @@ export default class SplitNoteContainer extends FlexContainer {
         const $renderedWidget = widget.render();
 
         $renderedWidget.attr("data-ntx-id", noteContext.ntxId);
-        $renderedWidget.css("flex-basis", "0"); // so that each split has same width
-
         $renderedWidget.on('click', () => appContext.tabManager.activateNoteContext(noteContext.ntxId));
 
         this.$widget.append($renderedWidget);
@@ -36,8 +34,18 @@ export default class SplitNoteContainer extends FlexContainer {
         this.child(widget);
     }
 
-    async openNewNoteSplitEvent({ntxId, notePath}) {
-        const noteContext = await appContext.tabManager.openEmptyTab(null, 'root', appContext.tabManager.getActiveMainContext().ntxId);
+    async openNewNoteSplitEvent({ntxId, notePath, hoistedNoteId, viewScope}) {
+        const mainNtxId = appContext.tabManager.getActiveMainContext().ntxId;
+
+        if (!ntxId) {
+            logError("empty ntxId!");
+
+            ntxId = mainNtxId;
+        }
+
+        hoistedNoteId = hoistedNoteId || appContext.tabManager.getActiveContext().hoistedNoteId;
+
+        const noteContext = await appContext.tabManager.openEmptyTab(null, hoistedNoteId, mainNtxId);
 
         // remove the original position of newly created note context
         const ntxIds = appContext.tabManager.children.map(c => c.ntxId)
@@ -46,7 +54,7 @@ export default class SplitNoteContainer extends FlexContainer {
         // insert the note context after the originating note context
         ntxIds.splice(ntxIds.indexOf(ntxId) + 1, 0, noteContext.ntxId);
 
-        this.triggerCommand("noteContextReorder", ntxIds);
+        this.triggerCommand("noteContextReorder", {ntxIdsInOrder: ntxIds});
 
         // move the note context rendered widget after the originating widget
         this.$widget.find(`[data-ntx-id="${noteContext.ntxId}"]`)
@@ -55,7 +63,7 @@ export default class SplitNoteContainer extends FlexContainer {
         await appContext.tabManager.activateNoteContext(noteContext.ntxId);
 
         if (notePath) {
-            await noteContext.setNote(notePath);
+            await noteContext.setNote(notePath, viewScope);
         }
         else {
             await noteContext.setEmpty();
@@ -64,6 +72,50 @@ export default class SplitNoteContainer extends FlexContainer {
 
     closeThisNoteSplitCommand({ntxId}) {
         appContext.tabManager.removeNoteContext(ntxId);
+    }
+
+    async moveThisNoteSplitCommand({ntxId, isMovingLeft}) {
+        if (!ntxId) {
+            logError("empty ntxId!");
+            return;
+        }
+
+        const contexts = appContext.tabManager.noteContexts;
+
+        const currentIndex = contexts.findIndex(c => c.ntxId === ntxId);
+        const leftIndex = isMovingLeft ? currentIndex - 1 : currentIndex;
+
+        if (currentIndex === -1 || leftIndex < 0 || leftIndex + 1 >= contexts.length) {
+            logError(`invalid context! currentIndex: ${currentIndex}, leftIndex: ${leftIndex}, contexts.length: ${contexts.length}`);
+            return;
+        }
+
+        if (contexts[leftIndex].isEmpty() && contexts[leftIndex + 1].isEmpty()) {
+            // no op
+            return;
+        }
+
+        const ntxIds = contexts.map(c => c.ntxId);
+        const newNtxIds = [
+            ...ntxIds.slice(0, leftIndex),
+            ntxIds[leftIndex + 1],
+            ntxIds[leftIndex],
+            ...ntxIds.slice(leftIndex + 2),
+        ];
+        const isChangingMainContext = !contexts[leftIndex].mainNtxId;
+
+        this.triggerCommand("noteContextReorder", {
+            ntxIdsInOrder: newNtxIds,
+            oldMainNtxId: isChangingMainContext ? ntxIds[leftIndex] : null,
+            newMainNtxId: isChangingMainContext ? ntxIds[leftIndex + 1]: null,
+        });
+
+        // reorder the note context widgets
+        this.$widget.find(`[data-ntx-id="${ntxIds[leftIndex]}"]`)
+            .insertAfter(this.$widget.find(`[data-ntx-id="${ntxIds[leftIndex + 1]}"]`));
+
+        // activate context that now contains the original note
+        await appContext.tabManager.activateNoteContext(isMovingLeft ? ntxIds[leftIndex + 1] : ntxIds[leftIndex]);
     }
 
     activeContextChangedEvent() {
@@ -82,6 +134,15 @@ export default class SplitNoteContainer extends FlexContainer {
 
             delete this.widgets[ntxId];
         }
+    }
+
+    contextsReopenedEvent({ntxId, afterNtxId}) {
+        if (ntxId === undefined || afterNtxId === undefined) {
+            // no single split reopened
+            return;
+        }
+        this.$widget.find(`[data-ntx-id="${ntxId}"]`)
+            .insertAfter(this.$widget.find(`[data-ntx-id="${afterNtxId}"]`));
     }
 
     async refresh() {
@@ -104,8 +165,8 @@ export default class SplitNoteContainer extends FlexContainer {
 
     /**
      * widget.hasBeenAlreadyShown is intended for lazy loading of cached tabs - initial note switches of new tabs
-     * are not executed, we're waiting for the first tab activation and then we update the tab. After this initial
-     * activation further note switches are always propagated to the tabs.
+     * are not executed, we're waiting for the first tab activation, and then we update the tab. After this initial
+     * activation, further note switches are always propagated to the tabs.
      */
     handleEventInChildren(name, data) {
         if (['noteSwitched', 'noteSwitchedAndActivated'].includes(name)) {

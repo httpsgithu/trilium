@@ -1,7 +1,8 @@
 "use strict";
 
 const fs = require('fs');
-const dataDir = require('./data_dir');
+const dataDir = require('./data_dir.js');
+const cls = require('./cls.js');
 
 if (!fs.existsSync(dataDir.LOG_DIR)) {
     fs.mkdirSync(dataDir.LOG_DIR, 0o700);
@@ -29,7 +30,7 @@ function getTodaysMidnight() {
 function initLogFile() {
     todaysMidnight = getTodaysMidnight();
 
-    const path = dataDir.LOG_DIR + '/trilium-' + formatDate() + '.log';
+    const path = `${dataDir.LOG_DIR}/trilium-${formatDate()}.log`;
 
     if (logFile) {
         logFile.end();
@@ -49,11 +50,17 @@ function checkDate(millisSinceMidnight) {
 }
 
 function log(str) {
+    const bundleNoteId = cls.get("bundleNoteId");
+
+    if (bundleNoteId) {
+        str = `[Script ${bundleNoteId}] ${str}`;
+    }
+
     let millisSinceMidnight = Date.now() - todaysMidnight.getTime();
 
     millisSinceMidnight = checkDate(millisSinceMidnight);
 
-    logFile.write(formatTime(millisSinceMidnight) + ' ' + str + NEW_LINE);
+    logFile.write(`${formatTime(millisSinceMidnight)} ${str}${NEW_LINE}`);
 
     console.log(str);
 }
@@ -63,12 +70,12 @@ function info(message) {
 }
 
 function error(message) {
-    log("ERROR: " + message);
+    log(`ERROR: ${message}`);
 }
 
-const requestBlacklist = [ "/libraries", "/app", "/images", "/stylesheets" ];
+const requestBlacklist = [ "/libraries", "/app", "/images", "/stylesheets", "/api/recent-notes" ];
 
-function request(req, res, timeMs) {
+function request(req, res, timeMs, responseLength = "?") {
     for (const bl of requestBlacklist) {
         if (req.url.startsWith(bl)) {
             return;
@@ -80,21 +87,21 @@ function request(req, res, timeMs) {
     }
 
     info((timeMs >= 10 ? "Slow " : "") +
-        res.statusCode + " " + req.method + " " + req.url + " took " + timeMs + "ms");
+        `${res.statusCode} ${req.method} ${req.url} with ${responseLength} bytes took ${timeMs}ms`);
 }
 
 function pad(num) {
     num = Math.floor(num);
 
-    return num < 10 ? ("0" + num) : num.toString();
+    return num < 10 ? (`0${num}`) : num.toString();
 }
 
 function padMilli(num) {
     if (num < 10) {
-        return "00" + num;
+        return `00${num}`;
     }
     else if (num < 100) {
-        return "0" + num;
+        return `0${num}`;
     }
     else {
         return num.toString();
@@ -102,16 +109,11 @@ function padMilli(num) {
 }
 
 function formatTime(millisSinceMidnight) {
-    return pad(millisSinceMidnight / HOUR)
-        + ":" + pad((millisSinceMidnight % HOUR) / MINUTE)
-        + ":" + pad((millisSinceMidnight % MINUTE) / SECOND)
-        + "." + padMilli(millisSinceMidnight % SECOND);
+    return `${pad(millisSinceMidnight / HOUR)}:${pad((millisSinceMidnight % HOUR) / MINUTE)}:${pad((millisSinceMidnight % MINUTE) / SECOND)}.${padMilli(millisSinceMidnight % SECOND)}`;
 }
 
 function formatDate() {
-    return pad(todaysMidnight.getFullYear())
-        + "-" + pad(todaysMidnight.getMonth() + 1)
-        + "-" + pad(todaysMidnight.getDate());
+    return `${pad(todaysMidnight.getFullYear())}-${pad(todaysMidnight.getMonth() + 1)}-${pad(todaysMidnight.getDate())}`;
 }
 
 module.exports = {

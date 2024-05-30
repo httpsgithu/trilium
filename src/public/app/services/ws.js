@@ -3,6 +3,7 @@ import toastService from "./toast.js";
 import server from "./server.js";
 import options from "./options.js";
 import frocaUpdater from "./froca_updater.js";
+import appContext from "../components/app_context.js";
 
 const messageHandlers = [];
 
@@ -25,7 +26,19 @@ function logError(message) {
     }
 }
 
+function logInfo(message) {
+    console.log(utils.now(), message);
+
+    if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({
+            type: 'log-info',
+            info: message
+        }));
+    }
+}
+
 window.logError = logError;
+window.logInfo = logInfo;
 
 function subscribeToMessages(messageHandler) {
     messageHandlers.push(messageHandler);
@@ -40,10 +53,47 @@ const processedEntityChangeIds = new Set();
 function logRows(entityChanges) {
     const filteredRows = entityChanges.filter(row =>
         !processedEntityChangeIds.has(row.id)
-        && (row.entityName !== 'options' || row.entityId !== 'openTabs'));
+        && (row.entityName !== 'options' || row.entityId !== 'openNoteContexts'));
 
     if (filteredRows.length > 0) {
         console.debug(utils.now(), "Frontend update data: ", filteredRows);
+    }
+}
+
+async function executeFrontendUpdate(entityChanges) {
+    lastPingTs = Date.now();
+
+    if (entityChanges.length > 0) {
+        logRows(entityChanges);
+
+        frontendUpdateDataQueue.push(...entityChanges);
+
+        // we set lastAcceptedEntityChangeId even before frontend update processing and send ping so that backend can start sending more updates
+
+        for (const entityChange of entityChanges) {
+            lastAcceptedEntityChangeId = Math.max(lastAcceptedEntityChangeId, entityChange.id);
+
+            if (entityChange.isSynced) {
+                lastAcceptedEntityChangeSyncId = Math.max(lastAcceptedEntityChangeSyncId, entityChange.id);
+            }
+        }
+
+        sendPing();
+
+        // first wait for all the preceding consumers to finish
+        while (consumeQueuePromise) {
+            await consumeQueuePromise;
+        }
+
+        try {
+            // it's my turn, so start it up
+            consumeQueuePromise = consumeFrontendUpdateData();
+
+            await consumeQueuePromise;
+        } finally {
+            // finish and set to null to signal somebody else can pick it up
+            consumeQueuePromise = null;
+        }
     }
 }
 
@@ -54,48 +104,33 @@ async function handleMessage(event) {
         messageHandler(message);
     }
 
-    if (message.type === 'frontend-update') {
-        let {entityChanges} = message.data;
+    if (message.type === 'ping') {
         lastPingTs = Date.now();
-
-        if (entityChanges.length > 0) {
-            logRows(entityChanges);
-
-            frontendUpdateDataQueue.push(...entityChanges);
-
-            // we set lastAcceptedEntityChangeId even before frontend update processing and send ping so that backend can start sending more updates
-            lastAcceptedEntityChangeId = Math.max(lastAcceptedEntityChangeId, entityChanges[entityChanges.length - 1].id);
-
-            const lastSyncEntityChange = entityChanges.slice().reverse().find(ec => ec.isSynced);
-
-            if (lastSyncEntityChange) {
-                lastAcceptedEntityChangeSyncId = Math.max(lastAcceptedEntityChangeSyncId, lastSyncEntityChange.id);
-            }
-
-            sendPing();
-
-            // first wait for all the preceding consumers to finish
-            while (consumeQueuePromise) {
-                await consumeQueuePromise;
-            }
-
-            try {
-                // it's my turn so start it up
-                consumeQueuePromise = consumeFrontendUpdateData();
-
-                await consumeQueuePromise;
-            }
-            finally {
-                // finish and set to null to signal somebody else can pick it up
-                consumeQueuePromise = null;
-            }
-        }
+    }
+    else if (message.type === 'reload-frontend') {
+        utils.reloadFrontendApp("received request from backend to reload frontend");
+    }
+    else if (message.type === 'frontend-update') {
+        await executeFrontendUpdate(message.data.entityChanges);
     }
     else if (message.type === 'sync-hash-check-failed') {
         toastService.showError("Sync check failed!", 60000);
     }
     else if (message.type === 'consistency-checks-failed') {
         toastService.showError("Consistency checks failed! See logs for details.", 50 * 60000);
+    }
+    else if (message.type === 'api-log-messages') {
+        appContext.triggerEvent("apiLogMessages", {noteId: message.noteId, messages: message.messages});
+    }
+    else if (message.type === 'toast') {
+        toastService.showMessage(message.message);
+    }
+    else if (message.type === 'execute-script') {
+        const bundleService = (await import("../services/bundle.js")).default;
+        const froca = (await import("../services/froca.js")).default;
+        const originEntity = message.originEntityId ? await froca.getNote(message.originEntityId) : null;
+
+        bundleService.getAndExecuteBundle(message.currentNoteId, originEntity, message.script, message.params);
     }
 }
 
@@ -147,22 +182,22 @@ async function consumeFrontendUpdateData() {
             logError(`Encountered error ${e.message}: ${e.stack}, reloading frontend.`);
 
             if (!glob.isDev && !options.is('debugModeEnabled')) {
-                // if there's an error in updating the frontend then the easy option to recover is to reload the frontend completely
+                // if there's an error in updating the frontend, then the easy option to recover is to reload the frontend completely
 
                 utils.reloadFrontendApp();
             }
             else {
                 console.log("nonProcessedEntityChanges causing the timeout", nonProcessedEntityChanges);
 
-                alert(`Encountered error "${e.message}", check out the console.`);
+                toastService.showError(`Encountered error "${e.message}", check out the console.`);
             }
         }
 
         for (const entityChange of nonProcessedEntityChanges) {
             processedEntityChangeIds.add(entityChange.id);
-        }
 
-        lastProcessedEntityChangeId = Math.max(lastProcessedEntityChangeId, allEntityChanges[allEntityChanges.length - 1].id);
+            lastProcessedEntityChangeId = Math.max(lastProcessedEntityChangeId, entityChange.id);
+        }
     }
 
     checkEntityChangeIdListeners();
@@ -170,8 +205,7 @@ async function consumeFrontendUpdateData() {
 
 function connectWebSocket() {
     const loc = window.location;
-    const webSocketUri = (loc.protocol === "https:" ? "wss:" : "ws:")
-                       + "//" + loc.host + loc.pathname;
+    const webSocketUri = `${loc.protocol === "https:" ? "wss:" : "ws:"}//${loc.host}${loc.pathname}`;
 
     // use wss for secure messaging
     const ws = new WebSocket(webSocketUri);
@@ -211,7 +245,6 @@ setTimeout(() => {
 export default {
     logError,
     subscribeToMessages,
-    waitForEntityChangeId,
     waitForMaxKnownEntityChangeId,
     getMaxKnownEntityChangeSyncId: () => lastAcceptedEntityChangeSyncId
 };

@@ -1,18 +1,28 @@
 import server from '../services/server.js';
 import mimeTypesService from '../services/mime_types.js';
 import NoteContextAwareWidget from "./note_context_aware_widget.js";
+import dialogService from "../services/dialog.js";
 
 const NOTE_TYPES = [
     { type: "file", title: "File", selectable: false },
     { type: "image", title: "Image", selectable: false },
-    { type: "search", title: "Saved search", selectable: false },
+    { type: "search", title: "Saved Search", selectable: false },
+    { type: "noteMap", mime: '', title: "Note Map", selectable: false },
+    { type: "launcher", mime: '', title: "Launcher", selectable: false },
+    { type: "doc", mime: '', title: "Doc", selectable: false },
+    { type: "contentWidget", mime: '', title: "Widget", selectable: false },
 
     { type: "text", mime: "text/html", title: "Text", selectable: true },
-    { type: "relation-map", mime: "application/json", title: "Relation Map", selectable: true },
+    { type: "relationMap", mime: "application/json", title: "Relation Map", selectable: true },
     { type: "render", mime: '', title: "Render Note", selectable: true },
+    { type: "canvas", mime: 'application/json', title: "Canvas", selectable: true },
+    { type: "mermaid", mime: 'text/mermaid', title: "Mermaid Diagram", selectable: true },
     { type: "book", mime: '', title: "Book", selectable: true },
+    { type: "webView", mime: '', title: "Web View", selectable: true },
     { type: "code", mime: 'text/plain', title: "Code", selectable: true }
 ];
+
+const NOT_SELECTABLE_NOTE_TYPES = NOTE_TYPES.filter(nt => !nt.selectable).map(nt => nt.type);
 
 const TPL = `
 <div class="dropdown note-type-widget">
@@ -47,14 +57,14 @@ export default class NoteTypeWidget extends NoteContextAwareWidget {
 
     async refreshWithNote(note) {
         this.$noteTypeButton.prop("disabled",
-            () => ["file", "image", "search"].includes(note.type));
+            () => NOT_SELECTABLE_NOTE_TYPES.includes(note.type));
 
         this.$noteTypeDesc.text(await this.findTypeTitle(note.type, note.mime));
 
         this.$noteTypeButton.dropdown('hide');
     }
 
-    /** actual body is rendered lazily on note-type button click */
+    /** the actual body is rendered lazily on note-type button click */
     async renderDropdown() {
         this.$noteTypeDropdown.empty();
 
@@ -129,20 +139,17 @@ export default class NoteTypeWidget extends NoteContextAwareWidget {
             return;
         }
 
-        await server.put('notes/' + this.noteId
-            + '/type/' + encodeURIComponent(type)
-            + '/mime/' + encodeURIComponent(mime));
+        await server.put(`notes/${this.noteId}/type`, { type, mime });
     }
 
     async confirmChangeIfContent() {
-        const noteComplement = await this.noteContext.getNoteComplement();
+        const blob = await this.note.getBlob();
 
-        if (!noteComplement.content || !noteComplement.content.trim().length) {
+        if (!blob.content || !blob.content.trim().length) {
             return true;
         }
 
-        const confirmDialog = await import("../dialogs/confirm.js");
-        return await confirmDialog.confirm("It is not recommended to change note type when note content is not empty. Do you want to continue anyway?");
+        return await dialogService.confirm("It is not recommended to change note type when note content is not empty. Do you want to continue anyway?");
     }
 
     async entitiesReloadedEvent({loadResults}) {

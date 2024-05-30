@@ -1,4 +1,5 @@
 import NoteContextAwareWidget from "../note_context_aware_widget.js";
+import appContext from "../../components/app_context.js";
 
 export default class TypeWidget extends NoteContextAwareWidget {
     // for overriding
@@ -10,9 +11,7 @@ export default class TypeWidget extends NoteContextAwareWidget {
         return super.doRender();
     }
 
-    /**
-     * @param {NoteShort} note
-     */
+    /** @param {FNote} note */
     async doRefresh(note) {}
 
     async refresh() {
@@ -34,10 +33,11 @@ export default class TypeWidget extends NoteContextAwareWidget {
     }
 
     isActive() {
-        return this.$widget.is(":visible");
+        return this.$widget.is(":visible") && this.noteContext?.ntxId === appContext.tabManager.activeNtxId;
     }
 
-    getContent() {}
+    /** @returns {Promise<Object>|*} promise resolving note data. Note data is an object with content. */
+    getData() {}
 
     focus() {}
 
@@ -46,6 +46,20 @@ export default class TypeWidget extends NoteContextAwareWidget {
             await this.refresh();
 
             this.focus();
+        }
+    }
+
+    // events should be propagated manually to the children widgets
+    handleEventInChildren(name, data) {
+        if (['activeContextChanged', 'setNoteContext'].includes(name)) {
+            // won't trigger .refresh();
+            return super.handleEventInChildren('setNoteContext', data);
+        }
+        else if (name === 'entitiesReloaded') {
+            return super.handleEventInChildren(name, data);
+        }
+        else {
+            return Promise.resolve();
         }
     }
 }

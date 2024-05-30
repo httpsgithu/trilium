@@ -1,49 +1,65 @@
-const becca = require('../becca/becca');
+const becca = require('../becca/becca.js');
+const sql = require('./sql.js');
 
-function getOption(name) {
-    const option = require('../becca/becca').getOption(name);
+/** @returns {string|null} */
+function getOptionOrNull(name) {
+    let option;
 
-    if (!option) {
-        throw new Error(`Option "${name}" doesn't exist`);
+    if (becca.loaded) {
+        option = becca.getOption(name);
+    } else {
+        // e.g. in initial sync becca is not loaded because DB is not initialized
+        option = sql.getRow("SELECT * FROM options WHERE name = ?", [name]);
     }
 
-    return option.value;
+    return option ? option.value : null;
 }
 
-/**
- * @return {number}
- */
-function getOptionInt(name) {
+/** @returns {string} */
+function getOption(name) {
+    const val = getOptionOrNull(name);
+
+    if (val === null) {
+        throw new Error(`Option '${name}' doesn't exist`);
+    }
+
+    return val;
+}
+
+/** @returns {int} */
+function getOptionInt(name, defaultValue = undefined) {
     const val = getOption(name);
 
     const intVal = parseInt(val);
 
     if (isNaN(intVal)) {
-        throw new Error(`Could not parse "${val}" into integer for option "${name}"`);
+        if (defaultValue === undefined) {
+            throw new Error(`Could not parse '${val}' into integer for option '${name}'`);
+        } else {
+            return defaultValue;
+        }
     }
 
     return intVal;
 }
 
-/**
- * @return {boolean}
- */
+/** @returns {boolean} */
 function getOptionBool(name) {
     const val = getOption(name);
 
     if (!['true', 'false'].includes(val)) {
-        throw new Error(`Could not parse "${val}" into boolean for option "${name}"`);
+        throw new Error(`Could not parse '${val}' into boolean for option '${name}'`);
     }
 
     return val === 'true';
 }
 
 function setOption(name, value) {
-    const option = becca.getOption(name);
-
     if (value === true || value === false) {
         value = value.toString();
     }
+
+    const option = becca.getOption(name);
 
     if (option) {
         option.value = value;
@@ -56,10 +72,10 @@ function setOption(name, value) {
 }
 
 function createOption(name, value, isSynced) {
-    // to avoid circular dependency, need to find better solution
-    const Option = require('../becca/entities/option');
+    // to avoid circular dependency, need to find a better solution
+    const BOption = require('../becca/entities/boption.js');
 
-    new Option({
+    new BOption({
         name: name,
         value: value,
         isSynced: isSynced
@@ -70,7 +86,7 @@ function getOptions() {
     return Object.values(becca.options);
 }
 
-function getOptionsMap() {
+function getOptionMap() {
     const map = {};
 
     for (const option of Object.values(becca.options)) {
@@ -87,5 +103,6 @@ module.exports = {
     setOption,
     createOption,
     getOptions,
-    getOptionsMap
+    getOptionMap,
+    getOptionOrNull
 };

@@ -28,8 +28,8 @@ function getHoistedNoteId() {
     return namespace.get('hoistedNoteId') || 'root';
 }
 
-function getSourceId() {
-    return namespace.get('sourceId');
+function getComponentId() {
+    return namespace.get('componentId');
 }
 
 function getLocalNowDateTime() {
@@ -40,40 +40,57 @@ function disableEntityEvents() {
     namespace.set('disableEntityEvents', true);
 }
 
+function enableEntityEvents() {
+    namespace.set('disableEntityEvents', false);
+}
+
 function isEntityEventsDisabled() {
     return !!namespace.get('disableEntityEvents');
 }
 
-function clearEntityChanges() {
-    namespace.set('entityChanges', []);
+function setMigrationRunning(running) {
+    namespace.set('migrationRunning', !!running);
 }
 
-function getAndClearEntityChanges() {
-    const entityChanges = namespace.get('entityChanges') || [];
-
-    clearEntityChanges();
-
-    return entityChanges;
+function isMigrationRunning() {
+    return !!namespace.get('migrationRunning');
 }
 
-function addEntityChange(entityChange) {
-    if (namespace.get('ignoreEntityChanges')) {
+function disableSlowQueryLogging(disable) {
+    namespace.set('disableSlowQueryLogging', disable);
+}
+
+function isSlowQueryLoggingDisabled() {
+    return !!namespace.get('disableSlowQueryLogging');
+}
+
+function getAndClearEntityChangeIds() {
+    const entityChangeIds = namespace.get('entityChangeIds') || [];
+
+    namespace.set('entityChangeIds', []);
+
+    return entityChangeIds;
+}
+
+function putEntityChange(entityChange) {
+    if (namespace.get('ignoreEntityChangeIds')) {
         return;
     }
 
-    const entityChanges = namespace.get('entityChanges') || [];
+    const entityChangeIds = namespace.get('entityChangeIds') || [];
 
-    entityChanges.push(entityChange);
+    // store only ID since the record can be modified (e.g., in erase)
+    entityChangeIds.push(entityChange.id);
 
-    namespace.set('entityChanges', entityChanges);
+    namespace.set('entityChangeIds', entityChangeIds);
 }
 
 function reset() {
     clsHooked.reset();
 }
 
-function ignoreEntityChanges() {
-    namespace.set('ignoreEntityChanges', true);
+function ignoreEntityChangeIds() {
+    namespace.set('ignoreEntityChangeIds', true);
 }
 
 module.exports = {
@@ -83,13 +100,17 @@ module.exports = {
     set,
     namespace,
     getHoistedNoteId,
-    getSourceId,
+    getComponentId,
     getLocalNowDateTime,
     disableEntityEvents,
+    enableEntityEvents,
     isEntityEventsDisabled,
     reset,
-    clearEntityChanges,
-    getAndClearEntityChanges,
-    addEntityChange,
-    ignoreEntityChanges
+    getAndClearEntityChangeIds,
+    putEntityChange,
+    ignoreEntityChangeIds,
+    disableSlowQueryLogging,
+    isSlowQueryLoggingDisabled,
+    setMigrationRunning,
+    isMigrationRunning
 };

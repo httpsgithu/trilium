@@ -14,7 +14,7 @@ const TPL = `
         color: var(--muted-text-color);
         max-height: 200px;
         overflow: auto;
-        padding: 12px 12px 11px 12px;
+        padding: 14px 12px 13px 12px;
     }
     </style>
 
@@ -33,14 +33,18 @@ export default class InheritedAttributesWidget extends NoteContextAwareWidget {
     constructor() {
         super();
 
-        this.attributeDetailWidget = new AttributeDetailWidget().setParent(this);
+        /** @type {AttributeDetailWidget} */
+        this.attributeDetailWidget = new AttributeDetailWidget()
+            .contentSized()
+            .setParent(this);
+
         this.child(this.attributeDetailWidget);
     }
 
     getTitle() {
         return {
-            show: true,
-            title: "Inherited attributes",
+            show: !this.note.isLaunchBarConfig(),
+            title: "Inherited Attributes",
             icon: "bx bx-list-plus"
         };
     }
@@ -65,18 +69,21 @@ export default class InheritedAttributesWidget extends NoteContextAwareWidget {
 
         for (const attribute of inheritedAttributes) {
             const $attr = (await attributeRenderer.renderAttribute(attribute, false))
-                .on('click', e => this.attributeDetailWidget.showAttributeDetail({
-                    attribute: {
-                        noteId: attribute.noteId,
-                        type: attribute.type,
-                        name: attribute.name,
-                        value: attribute.value,
-                        isInheritable: attribute.isInheritable
-                    },
-                    isOwned: false,
-                    x: e.pageX,
-                    y: e.pageY
-                }));
+                .on('click', e => {
+                    setTimeout(() =>
+                        this.attributeDetailWidget.showAttributeDetail({
+                            attribute: {
+                                noteId: attribute.noteId,
+                                type: attribute.type,
+                                name: attribute.name,
+                                value: attribute.value,
+                                isInheritable: attribute.isInheritable
+                            },
+                            isOwned: false,
+                            x: e.pageX,
+                            y: e.pageY
+                        }), 100);
+                });
 
             this.$container
                 .append($attr)
@@ -85,11 +92,22 @@ export default class InheritedAttributesWidget extends NoteContextAwareWidget {
     }
 
     getInheritedAttributes(note) {
-        return note.getAttributes().filter(attr => attr.noteId !== this.noteId);
+        const attrs = note.getAttributes().filter(attr => attr.noteId !== this.noteId);
+
+        attrs.sort((a, b) => {
+            if (a.noteId === b.noteId) {
+                return a.position - b.position;
+            } else {
+                // inherited attributes should stay grouped: https://github.com/zadam/trilium/issues/3761
+                return a.noteId < b.noteId ? -1 : 1;
+            }
+        });
+
+        return attrs;
     }
 
     entitiesReloadedEvent({loadResults}) {
-        if (loadResults.getAttributes(this.componentId).find(attr => attributeService.isAffecting(attr, this.note))) {
+        if (loadResults.getAttributeRows(this.componentId).find(attr => attributeService.isAffecting(attr, this.note))) {
             this.refresh();
         }
     }

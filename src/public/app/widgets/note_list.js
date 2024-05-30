@@ -5,8 +5,6 @@ const TPL = `
 <div class="note-list-widget">
     <style>
     .note-list-widget {
-        flex-grow: 100000;
-        flex-shrink: 100000;
         min-height: 0;
         overflow: auto;
     }
@@ -22,11 +20,7 @@ const TPL = `
 
 export default class NoteListWidget extends NoteContextAwareWidget {
     isEnabled() {
-        return super.isEnabled()
-            && ['book', 'text', 'code'].includes(this.note.type)
-            && this.note.mime !== 'text/x-sqlite;schema=trilium'
-            && this.note.hasChildren()
-            && !this.note.hasLabel('hideChildrenOverview');
+        return super.isEnabled() && this.noteContext.hasNoteList();
     }
 
     doRender() {
@@ -43,7 +37,9 @@ export default class NoteListWidget extends NoteContextAwareWidget {
             threshold: 0.1
         });
 
-        observer.observe(this.$widget[0]);
+        // there seems to be a race condition on Firefox which triggers the observer only before the widget is visible
+        // (intersection is false). https://github.com/zadam/trilium/issues/4165
+        setTimeout(() => observer.observe(this.$widget[0]), 10);
     }
 
     checkRenderStatus() {
@@ -66,15 +62,20 @@ export default class NoteListWidget extends NoteContextAwareWidget {
     }
 
     async refresh() {
-        this.$content.empty();
         this.shownNoteId = null;
 
         await super.refresh();
     }
 
+    async refreshNoteListEvent({noteId}) {
+        if (this.isNote(noteId)) {
+            await this.renderNoteList(this.note);
+        }
+    }
+
     /**
      * We have this event so that we evaluate intersection only after note detail is loaded.
-     * If it's evaluated before note detail then it's clearly intersected (visible) although after note detail load
+     * If it's evaluated before note detail, then it's clearly intersected (visible) although after note detail load
      * it is not intersected (visible) anymore.
      */
     noteDetailRefreshedEvent({ntxId}) {
@@ -94,7 +95,7 @@ export default class NoteListWidget extends NoteContextAwareWidget {
     }
 
     entitiesReloadedEvent({loadResults}) {
-        if (loadResults.getAttributes().find(attr => attr.noteId === this.noteId && attr.name === 'viewType')) {
+        if (loadResults.getAttributeRows().find(attr => attr.noteId === this.noteId && ['viewType', 'expanded', 'pageSize'].includes(attr.name))) {
             this.shownNoteId = null; // force render
 
             this.checkRenderStatus();

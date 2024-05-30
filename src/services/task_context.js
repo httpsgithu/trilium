@@ -1,29 +1,30 @@
 "use strict";
 
-const ws = require('./ws');
+const ws = require('./ws.js');
 
 // taskId => TaskContext
 const taskContexts = {};
 
 class TaskContext {
-    constructor(taskId, taskType, data) {
+    constructor(taskId, taskType = null, data = {}) {
         this.taskId = taskId;
         this.taskType = taskType;
         this.data = data;
+        this.noteDeletionHandlerTriggered = false;
 
         // progressCount is meant to represent just some progress - to indicate the task is not stuck
-        this.progressCount = -1; // we're incrementing immediatelly
-        this.lastSentCountTs = 0; // 0 will guarantee first message will be sent
+        this.progressCount = -1; // we're incrementing immediately
+        this.lastSentCountTs = 0; // 0 will guarantee the first message will be sent
 
         // just the fact this has been initialized is a progress which should be sent to clients
-        // this is esp. important when importing big files/images which take long time to upload/process
+        // this is esp. important when importing big files/images which take a long time to upload/process
         // which means that first "real" increaseProgressCount() will be called quite late and user is without
         // feedback until then
         this.increaseProgressCount();
     }
 
-    /** @return {TaskContext} */
-    static getInstance(taskId, taskType, data) {
+    /** @returns {TaskContext} */
+    static getInstance(taskId, taskType, data = null) {
         if (!taskContexts[taskId]) {
             taskContexts[taskId] = new TaskContext(taskId, taskType, data);
         }
@@ -34,7 +35,7 @@ class TaskContext {
     increaseProgressCount() {
         this.progressCount++;
 
-        if (Date.now() - this.lastSentCountTs >= 300 && this.taskId !== 'initial-demo-import') {
+        if (Date.now() - this.lastSentCountTs >= 300 && this.taskId !== 'no-progress-reporting') {
             this.lastSentCountTs = Date.now();
 
             ws.sendMessageToAllClients({

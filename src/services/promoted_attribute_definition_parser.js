@@ -6,7 +6,7 @@ function parse(value) {
         if (token === 'promoted') {
             defObj.isPromoted = true;
         }
-        else if (['text', 'number', 'boolean', 'date', 'url'].includes(token)) {
+        else if (['text', 'number', 'boolean', 'date', 'datetime', 'url'].includes(token)) {
             defObj.labelType = token;
         }
         else if (['single', 'multi'].includes(token)) {
@@ -17,10 +17,15 @@ function parse(value) {
 
             defObj.numberPrecision = parseInt(chunks[1]);
         }
+        else if (token.startsWith('alias')) {
+            const chunks = token.split('=');
+
+            defObj.promotedAlias = chunks[1];
+        }
         else if (token.startsWith('inverse')) {
             const chunks = token.split('=');
 
-            defObj.inverseRelation = chunks[1];
+            defObj.inverseRelation = chunks[1].replace(/[^\p{L}\p{N}_:]/ug, "")
         }
         else {
             console.log("Unrecognized attribute definition token:", token);
